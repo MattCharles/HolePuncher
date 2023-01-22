@@ -284,7 +284,7 @@ func start_traversal(id, is_player_host, player_name, player_nickname):
 
 #register a client with the server
 func _send_client_to_server():
-	await get_tree().create_timer(2.0) #resume upon timeout of 2 second timer; aka wait 2s
+	await get_tree().create_timer(2.0).timeout #resume upon timeout of 2 second timer; aka wait 2s
 	var buffer = PackedByteArray()
 	buffer.append_array((REGISTER_CLIENT+client_name+":"+session_id+":"+nickname).to_utf8())
 	server_udp.close()
