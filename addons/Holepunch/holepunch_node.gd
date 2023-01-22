@@ -30,17 +30,17 @@ var server_udp = PacketPeerUDP.new()
 var peer_udp = PacketPeerUDP.new()
 
 #Set the rendevouz address to the IP address of your third party server
-export(String) var rendevouz_address = "" 
+@export var rendevouz_address:String = "" 
 #Set the rendevouz port to the port of your third party server
-export(int) var rendevouz_port = 4000
+@export var rendevouz_port:int = 4000
 #This is the range of ports you will search if you hear no response from the first port tried
-export(int) var port_cascade_range = 10
+@export var port_cascade_range:int = 10
 #The amount of messages of the same type you will send before cascading or giving up
-export(int) var response_window = 150
+@export var response_window:int = 150
 #max session size
-export(int) var MAX_PLAYER_COUNT = 2
+@export var MAX_PLAYER_COUNT:int = 2
 #dev testing mode! this will override your peers ip with 'localhost' to test on your own machine.
-export(bool) var local_testing = false
+@export var local_testing:bool = false
 
 var found_server = false
 var recieved_peer_info = false
@@ -87,15 +87,15 @@ func _process(delta):
 		if packet_string.begins_with(PEER_GREET):
 			print("< peer greet!")
 			var m = packet_string.split(":")
-			_handle_greet_message(m[1], int(m[2]))
+			_handle_greet_message(m[1], m[2].to_int())
 		elif packet_string.begins_with(PEER_CONFIRM):
 			print("< peer confirm!")
 			var m = packet_string.split(":")
-			_handle_confirm_message(m[1], int(m[2]))
+			_handle_confirm_message(m[1], m[2].to_int())
 		elif packet_string.begins_with(HOST_GO):
 			print("< host go!")
 			var m = packet_string.split(":")
-			_handle_go_message(m[1], int(m[2]))
+			_handle_go_message(m[1], m[2].to_int())
 		else:
 			print("< unrecognized peer message!")
 
@@ -112,7 +112,7 @@ func _process(delta):
 			return
 		if packet_string.begins_with(SERVER_OK):
 			var m = packet_string.split(":")
-			own_port = int( m[1] )
+			own_port = m[1].to_int()
 			print("Listening on port: ",own_port)
 			emit_signal('session_registered')
 			if is_host:
@@ -164,7 +164,7 @@ func _handle_go_message(peer_name,peer_port):
 func _cascade_peer(peer_address, peer_port):
 	for i in range(int(peer_port) - port_cascade_range, int(peer_port) + port_cascade_range):
 		peer_udp.set_dest_address(peer_address, i)
-		var buffer = PoolByteArray()
+		var buffer = PackedByteArray()
 		buffer.append_array((PEER_GREET+client_name+":"+str(own_port)).to_utf8()) #tell peer about your new port
 		peer_udp.put_packet(buffer)
 
@@ -190,13 +190,13 @@ func _ping_peer():
 			else:
 				print("> send greet!")
 				peer_udp.set_dest_address(peer.address, int(peer.port))
-				var buffer = PoolByteArray()
+				var buffer = PackedByteArray()
 				buffer.append_array((PEER_GREET+client_name+":"+str(own_port)).to_utf8())
 				peer_udp.put_packet(buffer)
 		if stage == 1 and recieved_peer_greets:
 			print("> send confirm!")
 			peer_udp.set_dest_address(peer.address, int(peer.port))
-			var buffer = PoolByteArray()
+			var buffer = PackedByteArray()
 			buffer.append_array((PEER_CONFIRM+client_name+":"+str(own_port)).to_utf8())
 			peer_udp.put_packet(buffer)
 		#initiate fail if peer can't connect to you (stage 0), or hasn't connected to all other peers (stage 1)
@@ -212,7 +212,7 @@ func _ping_peer():
 				var peer = peers[p]
 				print("> send go!")
 				peer_udp.set_dest_address(peer.address, int(peer.port))
-				var buffer = PoolByteArray()
+				var buffer = PackedByteArray()
 				buffer.append_array((HOST_GO+client_name+":"+str(own_port)).to_utf8())
 				peer_udp.put_packet(buffer)
 			emit_signal("hole_punched", int(own_port), host_port, host_address, peers.size())
@@ -224,7 +224,7 @@ func _ping_peer():
 #initiate _ping_peer loop, disconnect from server
 func start_peer_contact():	
 	print("starting peer contact")
-	server_udp.put_packet("goodbye".to_utf8()) #this might not always get called because the server_udp is already closed before this. seems to be true from testing.
+	server_udp.put_packet("goodbye".to_utf8_buffer()) #this might not always get called because the server_udp is already closed before this. seems to be true from testing.
 	server_udp.close()
 	if peer_udp.is_listening():
 		peer_udp.close()
@@ -236,14 +236,14 @@ func start_peer_contact():
 
 #this function can be called to the server if you want to end the holepunch before the server closes the session
 func finalize_peers():
-	var buffer = PoolByteArray()
-	buffer.append_array((EXCHANGE_PEERS+str(session_id)).to_utf8())
+	var buffer = PackedByteArray()
+	buffer.append_array((EXCHANGE_PEERS+str(session_id)).to_utf8_buffer())
 	server_udp.set_dest_address(rendevouz_address, rendevouz_port)
 	server_udp.put_packet(buffer)
 
 #removes a client from the server
 func checkout():
-	var buffer = PoolByteArray()
+	var buffer = PackedByteArray()
 	buffer.append_array((CHECKOUT_CLIENT+client_name).to_utf8())
 	server_udp.set_dest_address(rendevouz_address, rendevouz_port)
 	server_udp.put_packet(buffer)
@@ -274,7 +274,7 @@ func start_traversal(id, is_player_host, player_name, player_nickname):
 	session_id = id
 	
 	if (is_host):
-		var buffer = PoolByteArray()
+		var buffer = PackedByteArray()
 		buffer.append_array((REGISTER_SESSION+session_id+":"+str(MAX_PLAYER_COUNT)).to_utf8())
 		server_udp.set_dest_address(rendevouz_address, rendevouz_port)
 		server_udp.put_packet(buffer)
@@ -284,8 +284,8 @@ func start_traversal(id, is_player_host, player_name, player_nickname):
 
 #register a client with the server
 func _send_client_to_server():
-	yield(get_tree().create_timer(2.0), "timeout") #resume upon timeout of 2 second timer; aka wait 2s
-	var buffer = PoolByteArray()
+	await get_tree().create_timer(2.0) #resume upon timeout of 2 second timer; aka wait 2s
+	var buffer = PackedByteArray()
 	buffer.append_array((REGISTER_CLIENT+client_name+":"+session_id+":"+nickname).to_utf8())
 	server_udp.close()
 	server_udp.set_dest_address(rendevouz_address, rendevouz_port)
@@ -299,7 +299,7 @@ func _exit_tree():
 func handle_failure(message):
 	print("Holepunch unsuccessful, stopping processes!")
 	if is_host and server_udp.is_listening() and found_server: #shutdown session if possible
-		var buffer = PoolByteArray()
+		var buffer = PackedByteArray()
 		buffer.append_array((CLOSE_SESSION+str(session_id)+":"+message).to_utf8())
 		server_udp.put_packet(buffer)
 	else:
