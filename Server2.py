@@ -108,7 +108,7 @@ class ServerProtocol(DatagramProtocol):
             try:
                 room_code = self.create_session(max_clients, c_ip)
                 self.transport.write(
-                    bytes('ok:'+str(c_port)+':'+str()+':'+str(room_code), "utf-8"), address)
+                    bytes('ok:'+str(c_port)+':'+str(room_code), "utf-8"), address)
             except ServerFail as e:
                 self.transport.write(bytes('close:'+str(e), "utf-8"), address)
 
