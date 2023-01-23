@@ -35,7 +35,7 @@ class ServerProtocol(DatagramProtocol):
         return name in self.registered_clients
 
     def generate_room_code(self, n):
-        return random.choices(consonants, None, None, n)
+        return ''.join(random.choices(consonants, weights=None, cum_weights=None, k=n))
 
     def create_session(self, client_list, host_ip):
         while True:
