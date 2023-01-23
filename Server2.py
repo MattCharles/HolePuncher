@@ -123,7 +123,7 @@ class ServerProtocol(DatagramProtocol):
                 self.register_client(
                     c_name, c_session, c_ip, c_port, c_nickname)
                 self.transport.write(
-                    bytes('ok:'+str(c_port), "utf-8"), address)
+                    bytes('ok:'+str(c_port)+':'+str(room_code), "utf-8"), address)
             except ServerFail as e:
                 self.transport.write(bytes('close:'+str(e), "utf-8"), address)
             else:
