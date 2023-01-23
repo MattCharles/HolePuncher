@@ -103,14 +103,12 @@ class ServerProtocol(DatagramProtocol):
         if msg_type == "rs":
             # register session
             c_ip, c_port = address
-            self.transport.write(bytes('ok:'+str(c_port), "utf-8"), address)
             split = data_string.split(":")
-            session = split[1]
-            max_clients = split[2]
+            max_clients = split[1]
             try:
-                room_code = self.create_session(session, max_clients, c_ip)
+                room_code = self.create_session(max_clients, c_ip)
                 self.transport.write(
-                    bytes('code:'+str(room_code), "utf-8"), address)
+                    bytes('ok:'+str(c_port)+':'+str()+':'+str(room_code), "utf-8"), address)
             except ServerFail as e:
                 self.transport.write(bytes('close:'+str(e), "utf-8"), address)
 
