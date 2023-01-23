@@ -123,7 +123,7 @@ class ServerProtocol(DatagramProtocol):
                 self.register_client(
                     c_name, c_session, c_ip, c_port, c_nickname)
                 self.transport.write(
-                    bytes('ok:'+str(c_port)+':'+str(room_code), "utf-8"), address)
+                    bytes('ok:'+str(c_port)+':'+str(c_session), "utf-8"), address)
             except ServerFail as e:
                 self.transport.write(bytes('close:'+str(e), "utf-8"), address)
             else:
@@ -132,8 +132,8 @@ class ServerProtocol(DatagramProtocol):
         elif msg_type == "ep":
             # exchange peers
             split = data_string.split(":")
-            c_session = split[1]
-            self.exchange_info(c_session)
+            room_code = split[1]
+            self.exchange_info(room_code)
 
         elif msg_type == "cc":
             # checkout client
@@ -144,12 +144,12 @@ class ServerProtocol(DatagramProtocol):
         elif msg_type == "cs":
             # close session
             split = data_string.split(":")
-            c_session = split[1]
+            room_code = split[1]
             c_reason = split[2]
             c_ip, c_port = address
             s = None
             try:
-                s = self.active_sessions[c_session]
+                s = self.active_sessions[room_code]
             except KeyError:
                 print("Host tried to close non-existing session")
             else:
