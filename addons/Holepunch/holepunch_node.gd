@@ -12,7 +12,7 @@ extends Node
 
 #Signal is emitted when holepunch is complete. Connect this signal to your network manager
 #Once your network manager received the signal they can host or join a game on the host port
-signal hole_punched(my_port, hosts_port, hosts_address)
+signal hole_punched(my_port, hosts_port, hosts_address, connected_peers)
 
 #This signal is emitted when the server has acknowledged your client registration, but before the
 #address and port of the other client have arrived.
@@ -101,7 +101,7 @@ func _process(delta):
 
 	#handle server messages
 	if server_udp.get_available_packet_count() > 0:
-		var array_bytes = server_udp.get_packet()
+		var array_bytes: PackedByteArray = server_udp.get_packet()
 		var packet_string = array_bytes.get_string_from_ascii()
 		if packet_string.begins_with(SERVER_LOBBY):
 			var m = packet_string.split(":")
@@ -123,11 +123,12 @@ func _process(delta):
 		if not recieved_peer_info:
 			if packet_string.begins_with(SERVER_INFO):
 				server_udp.close()
-				packet_string = packet_string.right(6) #after 'peers:'
+				packet_string = packet_string.right(-6) #after 'peers:'
 				if packet_string.length() > 2:
 					var clientdata = packet_string.split(",") #this is formatted client:ip:port,client2:ip:port
 					for c in clientdata:
 						var m = c.split(":")
+						own_port = m[2]
 						peers[m[0]] = {"port":m[2], "address":("localhost" if local_testing else m[1]),"hosting":(m[3]=="True"),"name":m[0]}
 					recieved_peer_info = true
 					start_peer_contact()
@@ -165,7 +166,7 @@ func _cascade_peer(peer_address, peer_port):
 	for i in range(int(peer_port) - port_cascade_range, int(peer_port) + port_cascade_range):
 		peer_udp.set_dest_address(peer_address, i)
 		var buffer = PackedByteArray()
-		buffer.append_array((PEER_GREET+client_name+":"+str(own_port)).to_utf8()) #tell peer about your new port
+		buffer.append_array((PEER_GREET+client_name+":"+str(own_port)).to_utf8_buffer()) #tell peer about your new port
 		peer_udp.put_packet(buffer)
 
 #contact other peers, repeatedly called by p_timer, started in start_peer_contact
@@ -191,13 +192,13 @@ func _ping_peer():
 				print("> send greet!")
 				peer_udp.set_dest_address(peer.address, int(peer.port))
 				var buffer = PackedByteArray()
-				buffer.append_array((PEER_GREET+client_name+":"+str(own_port)).to_utf8())
+				buffer.append_array((PEER_GREET+client_name+":"+str(own_port)).to_utf8_buffer())
 				peer_udp.put_packet(buffer)
 		if stage == 1 and recieved_peer_greets:
 			print("> send confirm!")
 			peer_udp.set_dest_address(peer.address, int(peer.port))
 			var buffer = PackedByteArray()
-			buffer.append_array((PEER_CONFIRM+client_name+":"+str(own_port)).to_utf8())
+			buffer.append_array((PEER_CONFIRM+client_name+":"+str(own_port)).to_utf8_buffer())
 			peer_udp.put_packet(buffer)
 		#initiate fail if peer can't connect to you (stage 0), or hasn't connected to all other peers (stage 1)
 		#in this case, all peers should have atleast one unsuccessful connection, and we will throw an error to the game
@@ -213,7 +214,7 @@ func _ping_peer():
 				print("> send go!")
 				peer_udp.set_dest_address(peer.address, int(peer.port))
 				var buffer = PackedByteArray()
-				buffer.append_array((HOST_GO+client_name+":"+str(own_port)).to_utf8())
+				buffer.append_array((HOST_GO+client_name+":"+str(own_port)).to_utf8_buffer())
 				peer_udp.put_packet(buffer)
 			emit_signal("hole_punched", int(own_port), host_port, host_address, peers.size())
 			peer_udp.close()
@@ -226,9 +227,9 @@ func start_peer_contact():
 	print("starting peer contact")
 	server_udp.put_packet("goodbye".to_utf8_buffer()) #this might not always get called because the server_udp is already closed before this. seems to be true from testing.
 	server_udp.close()
-	if peer_udp.is_listening():
+	if peer_udp.is_bound():
 		peer_udp.close()
-	var err = peer_udp.listen(own_port, "*")
+	var err = peer_udp.bind(int(own_port), "*")
 	if err != OK:
 		handle_failure("Error listening on port: " + str(own_port) +", " + str(err))
 		return
@@ -244,16 +245,16 @@ func finalize_peers():
 #removes a client from the server
 func checkout():
 	var buffer = PackedByteArray()
-	buffer.append_array((CHECKOUT_CLIENT+client_name).to_utf8())
+	buffer.append_array((CHECKOUT_CLIENT+client_name).to_utf8_buffer())
 	server_udp.set_dest_address(rendevouz_address, rendevouz_port)
 	server_udp.put_packet(buffer)
 
 #call this function when you want to start the holepunch process
 func start_traversal(id, is_player_host, player_name, player_nickname):
-	if server_udp.is_listening():
+	if server_udp.is_bound():
 		server_udp.close()
 
-	var err = server_udp.listen(rendevouz_port, "*")
+	var err = server_udp.bind(rendevouz_port, "*")
 	if err != OK:
 		handle_failure("Error listening on port: " + str(rendevouz_port) + " to server: " + rendevouz_address)
 		return
@@ -275,7 +276,7 @@ func start_traversal(id, is_player_host, player_name, player_nickname):
 	
 	if (is_host):
 		var buffer = PackedByteArray()
-		buffer.append_array((REGISTER_SESSION+session_id+":"+str(MAX_PLAYER_COUNT)).to_utf8())
+		buffer.append_array((REGISTER_SESSION+session_id+":"+str(MAX_PLAYER_COUNT)).to_utf8_buffer())
 		server_udp.set_dest_address(rendevouz_address, rendevouz_port)
 		server_udp.put_packet(buffer)
 		#host gets added to session after an ok, in _process
@@ -286,7 +287,7 @@ func start_traversal(id, is_player_host, player_name, player_nickname):
 func _send_client_to_server():
 	await get_tree().create_timer(2.0).timeout #resume upon timeout of 2 second timer; aka wait 2s
 	var buffer = PackedByteArray()
-	buffer.append_array((REGISTER_CLIENT+client_name+":"+session_id+":"+nickname).to_utf8())
+	buffer.append_array((REGISTER_CLIENT+client_name+":"+session_id+":"+nickname).to_utf8_buffer())
 	server_udp.close()
 	server_udp.set_dest_address(rendevouz_address, rendevouz_port)
 	server_udp.put_packet(buffer)
@@ -298,9 +299,9 @@ func _exit_tree():
 #reports connection failure, and stops all connections
 func handle_failure(message):
 	print("Holepunch unsuccessful, stopping processes!")
-	if is_host and server_udp.is_listening() and found_server: #shutdown session if possible
+	if is_host and server_udp.is_bound() and found_server: #shutdown session if possible
 		var buffer = PackedByteArray()
-		buffer.append_array((CLOSE_SESSION+str(session_id)+":"+message).to_utf8())
+		buffer.append_array((CLOSE_SESSION+str(session_id)+":"+message).to_utf8_buffer())
 		server_udp.put_packet(buffer)
 	else:
 		checkout() #remove client from session if not
@@ -321,5 +322,5 @@ func close_session():
 func _ready():
 	p_timer = Timer.new()
 	get_node("/root/").call_deferred("add_child", p_timer)
-	p_timer.connect("timeout", self, "_ping_peer")
+	p_timer.connect("timeout", _ping_peer)
 	p_timer.wait_time = 0.1
