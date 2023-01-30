@@ -232,7 +232,7 @@ class Client:
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
+    if len(sys.argv) <= 3:
         print("Usage: python3 server.py PORT AUTOSTART(y/n) TEST(y/n)")
         sys.exit(1)
     port = int(sys.argv[1])
