@@ -7,6 +7,7 @@ from time import sleep
 import sys
 
 autostart = False
+test = False
 ROOM_CODE_LENGTH = 5
 consonants = ["B", "C", "D", "F", "G", "H", "J", "K", "L",
               "M", "N", "P", "Q", "R", "S", "T", "V", "W", "X", "Y", "Z"]
@@ -35,6 +36,8 @@ class ServerProtocol(DatagramProtocol):
         return name in self.registered_clients
 
     def generate_room_code(self, n):
+        if test:
+            return "CHNDS"
         return ''.join(random.choices(consonants, weights=None, cum_weights=None, k=n))
 
     def create_session(self, client_list, host_ip):
@@ -230,10 +233,11 @@ class Client:
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
-        print("Usage: python3 server.py PORT AUTOSTART(y/n)")
+        print("Usage: python3 server.py PORT AUTOSTART(y/n) TEST(y/n)")
         sys.exit(1)
     port = int(sys.argv[1])
     autostart = sys.argv[2] == "y"
+    test = sys.argv[3] == "y"
     reactor.listenUDP(port, ServerProtocol())
     print('Listening on *:%d' % (port))
     reactor.run()
