@@ -12,10 +12,14 @@ ROOM_CODE_LENGTH = 5
 consonants = ["B", "C", "D", "F", "G", "H", "J", "K", "L",
               "M", "N", "P", "Q", "R", "S", "T", "V", "W", "X", "Y", "Z"]
 
+# https://en.wikipedia.org/wiki/C0_and_C1_control_codes#C0_controls
+# Control code designed for use as a delimiter.
+DELIMITER = chr(31)
+
 
 def address_to_string(address):
     ip, port = address
-    return ':'.join([ip, str(port)])
+    return DELIMITER.join([ip, str(port)])
 
 
 # used to catch errors and invalid registering, and relay to client
@@ -106,18 +110,18 @@ class ServerProtocol(DatagramProtocol):
         if msg_type == "rs":
             # register session
             c_ip, c_port = address
-            split = data_string.split(":")
+            split = data_string.split(DELIMITER)
             max_clients = split[2]
             try:
                 room_code = self.create_session(max_clients, c_ip)
                 self.transport.write(
-                    bytes('ok:'+str(c_port)+':'+str(room_code), "utf-8"), address)
+                    bytes('ok:'+str(c_port)+DELIMITER+str(room_code), "utf-8"), address)
             except ServerFail as e:
                 self.transport.write(bytes('close:'+str(e), "utf-8"), address)
 
         elif msg_type == "rc":
             # register client
-            split = data_string.split(":")
+            split = data_string.split(DELIMITER)
             c_name = split[1]
             c_session = split[2]
             c_nickname = split[3]
@@ -126,7 +130,7 @@ class ServerProtocol(DatagramProtocol):
                 self.register_client(
                     c_name, c_session, c_ip, c_port, c_nickname)
                 self.transport.write(
-                    bytes('ok:'+str(c_port)+':'+str(c_session), "utf-8"), address)
+                    bytes('ok:'+str(c_port)+DELIMITER+str(c_session), "utf-8"), address)
             except ServerFail as e:
                 self.transport.write(bytes('close:'+str(e), "utf-8"), address)
             else:
@@ -134,19 +138,19 @@ class ServerProtocol(DatagramProtocol):
 
         elif msg_type == "ep":
             # exchange peers
-            split = data_string.split(":")
+            split = data_string.split(DELIMITER)
             room_code = split[1]
             self.exchange_info(room_code)
 
         elif msg_type == "cc":
             # checkout client
-            split = data_string.split(":")
+            split = data_string.split(DELIMITER)
             c_name = split[1]
             self.client_checkout(c_name)
 
         elif msg_type == "cs":
             # close session
-            split = data_string.split(":")
+            split = data_string.split(DELIMITER)
             room_code = split[1]
             c_reason = split[2]
             c_ip, c_port = address
@@ -176,8 +180,8 @@ class Session:
         for client in self.registered_clients:
             nicknames.append(client.nickname)
         for client in self.registered_clients:
-            message = bytes("lobby:"+(",".join(nicknames)) +
-                            ":"+self.client_max, "utf-8")
+            message = bytes("lobby"+DELIMITER+(",".join(nicknames)) +
+                            DELIMITER+self.client_max, "utf-8")
             self.server.transport.write(message, (client.ip, client.port))
 
     def client_registered(self, client):
@@ -196,10 +200,10 @@ class Session:
             address_list = []
             for client in self.registered_clients:
                 if not client.name == addressed_client.name:
-                    address_list.append(client.name + ":" + address_to_string(
-                        (client.ip, client.port))+":"+str(self.host_ip == client.ip))
+                    address_list.append(client.name + DELIMITER + address_to_string(
+                        (client.ip, client.port))+DELIMITER+str(self.host_ip == client.ip))
             address_string = ",".join(address_list)
-            message = bytes("peers:" + address_string, "utf-8")
+            message = bytes("peers" + DELIMITER + address_string, "utf-8")
             self.server.transport.write(
                 message, (addressed_client.ip, addressed_client.port))
 
@@ -210,7 +214,7 @@ class Session:
 
     def close(self, reason):
         for client in self.registered_clients:
-            message = bytes("close:"+reason, "utf-8")
+            message = bytes("close" + DELIMITER + reason, "utf-8")
             self.server.transport.write(message, (client.ip, client.port))
             del self.server.registered_clients[client.name]
         print("Closing session due to: "+reason)
