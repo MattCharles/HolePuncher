@@ -115,7 +115,7 @@ class ServerProtocol(DatagramProtocol):
             # register session
             c_ip, c_port = address
             split = data_string.split(DELIMITER)
-            max_clients = split[2]
+            max_clients = split[1]
             try:
                 room_code = self.create_session(max_clients, c_ip)
                 self.transport.write(
