@@ -16,6 +16,10 @@ consonants = ["B", "C", "D", "F", "G", "H", "J", "K", "L",
 # Control code designed for use as a delimiter.
 DELIMITER = chr(31)
 
+close_message_header = 'close' + DELIMITER
+ok_message_header = 'ok' + DELIMITER
+lobby_message_header = 'lobby' + DELIMITER
+peers_message_header = 'peers' + DELIMITER
 
 def address_to_string(address):
     ip, port = address
@@ -57,7 +61,7 @@ class ServerProtocol(DatagramProtocol):
         try:
             # incase players are still in lobby
             for client in self.active_sessions[s_id].registered_clients:
-                message = bytes("close:Session closed.", "utf-8")
+                message = bytes(close_message_header+"Session closed.", "utf-8")
                 self.transport.write(message, (client.ip, client.port))
                 del self.registered_clients[client.name]
             del self.active_sessions[s_id]
@@ -115,9 +119,9 @@ class ServerProtocol(DatagramProtocol):
             try:
                 room_code = self.create_session(max_clients, c_ip)
                 self.transport.write(
-                    bytes('ok:'+str(c_port)+DELIMITER+str(room_code), "utf-8"), address)
+                    bytes(ok_message_header+str(c_port)+DELIMITER+str(room_code), "utf-8"), address)
             except ServerFail as e:
-                self.transport.write(bytes('close:'+str(e), "utf-8"), address)
+                self.transport.write(bytes(close_message_header+str(e), "utf-8"), address)
 
         elif msg_type == "rc":
             # register client
@@ -130,9 +134,9 @@ class ServerProtocol(DatagramProtocol):
                 self.register_client(
                     c_name, c_session, c_ip, c_port, c_nickname)
                 self.transport.write(
-                    bytes('ok:'+str(c_port)+DELIMITER+str(c_session), "utf-8"), address)
+                    bytes(ok_message_header+str(c_port)+DELIMITER+str(c_session), "utf-8"), address)
             except ServerFail as e:
-                self.transport.write(bytes('close:'+str(e), "utf-8"), address)
+                self.transport.write(bytes(close_message_header+str(e), "utf-8"), address)
             else:
                 self.active_sessions[c_session].update_lobby()
 
@@ -180,7 +184,7 @@ class Session:
         for client in self.registered_clients:
             nicknames.append(client.nickname)
         for client in self.registered_clients:
-            message = bytes("lobby"+DELIMITER+(",".join(nicknames)) +
+            message = bytes(lobby_message_header+(",".join(nicknames)) +
                             DELIMITER+self.client_max, "utf-8")
             self.server.transport.write(message, (client.ip, client.port))
 
@@ -203,7 +207,7 @@ class Session:
                     address_list.append(client.name + DELIMITER + address_to_string(
                         (client.ip, client.port))+DELIMITER+str(self.host_ip == client.ip))
             address_string = ",".join(address_list)
-            message = bytes("peers" + DELIMITER + address_string, "utf-8")
+            message = bytes(peers_message_header + address_string, "utf-8")
             self.server.transport.write(
                 message, (addressed_client.ip, addressed_client.port))
 
@@ -214,7 +218,7 @@ class Session:
 
     def close(self, reason):
         for client in self.registered_clients:
-            message = bytes("close" + DELIMITER + reason, "utf-8")
+            message = bytes(close_message_header + reason, "utf-8")
             self.server.transport.write(message, (client.ip, client.port))
             del self.server.registered_clients[client.name]
         print("Closing session due to: "+reason)
