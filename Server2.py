@@ -83,9 +83,12 @@ class ServerProtocol(DatagramProtocol):
             print("Session full")
             raise(ServerFail("Session full"))
         else:
+            print("registering new client")
+            print("client is called %s, ip:port = %s:%s, id: %s, room code: %s", c_nickname, c_ip, c_port, c_name, c_session)
             new_client = Client(c_name, c_session, c_ip, c_port, c_nickname)
             self.registered_clients[c_name] = new_client
             self.active_sessions[c_session].client_registered(new_client)
+            print(self.active_sessions[c_session].report())
 
     def exchange_info(self, c_session):
         if not c_session in self.active_sessions:
@@ -179,6 +182,17 @@ class Session:
         # timeout session after 10 minutes, just in case
         reactor.callLater(600, server.remove_session, session_id)
 
+    def report(self):
+        client_details = ''
+        for entry in registered_clients:
+            client_details.append(entry.report_to_string() + "\n")
+        print("""self.id: %s
+        self.client_max: %s
+        self.server: %s
+        self.host_ip: %s
+        self.registered_clients: %s
+        """, self.id, self.client_max, self.server, self.host_ip, client_details)
+
     def update_lobby(self):
         nicknames = []
         for client in self.registered_clients:
@@ -208,6 +222,8 @@ class Session:
                         (client.ip, client.port))+DELIMITER+str(self.host_ip == client.ip))
             address_string = ",".join(address_list)
             message = bytes(peers_message_header + address_string, "utf-8")
+            # If you want to send nicknames, this would be the place to do it
+            print("exchanging peer info for %s: %s", addressed_client.name, peers_message_header + address_string)
             self.server.transport.write(
                 message, (addressed_client.ip, addressed_client.port))
 
@@ -237,6 +253,9 @@ class Client:
         self.port = c_port
         self.nickname = c_nickname
         self.received_peer_info = False
+    
+    def report_to_string(self):
+        return ("name: %s, session_id: %s, ip: %s, port: %s, nickname: %s, received_peer_info: %s", self.name, self.session_id, self.ip, self.port, self.nickname, self.received_peer_info)
 
 
 if __name__ == '__main__':
