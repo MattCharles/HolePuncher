@@ -1,3 +1,4 @@
+import { exec } from "child_process";
 import { randomInt } from "crypto";
 
 const net = require("net");
@@ -5,6 +6,7 @@ const net = require("net");
 const DELIMITER: string = String.fromCharCode(31);
 const ROOM_CODE_LENGTH: number = 5;
 const MAX_ROOM_SIZE: number = 4;
+const SERVER_EXEC_PATH: string = "/home/mattdacat/Builds/server.x86_64";
 const CONSONANTS: string[] = [
   "B",
   "C",
@@ -31,8 +33,16 @@ const CONSONANTS: string[] = [
 type Player = {
   nickname: string;
   id: number;
+  ready: boolean;
+  ordinal: number;
+  last_update: number;
 };
 
+// TODO: only host can start?
+// Anyone can start once all have readied up?
+// Autostart on all ready up?
+
+// TODO: track last_update for lobby - if all DC at same time, can prune lobby
 type Lobby = {
   room_code: string;
   max_players: number;
@@ -44,37 +54,68 @@ type Lobby = {
 let private_servers: Map<string, Lobby> = new Map<string, Lobby>();
 let public_servers: Map<string, Lobby> = new Map<string, Lobby>();
 
+// TODO: prevent double-joining or double-hosting
+let known_players: Map<number, Lobby> = new Map<number, Lobby>();
+
+const MIN_GAME_PORT = 12940;
+const MAX_GAME_PORT = 22940;
+let busy_ports: Set<number> = new Set<number>();
+
 let server = net
   .createServer((socket: any) => {
     socket.on("data", (data: Buffer) => {
       let message: string = data.toString("utf-8");
-      let args: string[] = message.split(DELIMITER);
-      let type: string = trim_controls(args[0]);
+      let args: string[] = message
+        .split(DELIMITER)
+        .map((value) => trim_controls(value));
+      let type: string = args[0];
       if (type.includes("join")) {
         if (args.length > 1) {
+          let nickname: string = args[1];
           let room_code: string = args[2];
+          let id: number = parseInt(args[3]);
+          if (isNaN(id)) {
+            socket.write("Invalid ID: not a number");
+          }
           let room: Lobby | undefined = get_room(room_code);
           if (room === undefined) {
             socket.write("Room " + room_code + " not found.\n");
             return;
           } else {
             console.log("Found room!");
+            if (room.players.length >= room.max_players) {
+              socket.write("Room " + room_code + " full");
+              return;
+            }
+            let existing_room: Lobby | undefined = known_players.get(id);
+            if (existing_room != undefined) {
+              console.log("Player is already in a room");
+              remove_player(existing_room, id);
+            }
             let player: Player = {
-              nickname: "",
-              id: 0,
+              nickname: nickname,
+              id: id,
+              ready: false,
+              ordinal: room.players.length + 1,
+              last_update: Date.now(),
             };
-            // Idk do some stuff
+            room.players.push(player);
+            socket.write("jr" + DELIMITER + room.port);
           }
         }
       }
       if (type.includes("create")) {
-        if (args.length > 1) {
+        if (args.length == 5) {
           let nickname: string = args[1];
           let max_players: string = args[2];
-          let is_public: string = args[3];
+          let is_public: boolean | undefined = parseBool(args[3]);
+          if (is_public == undefined) {
+            console.log("bad public number");
+            socket.write("Invalid public setting - please use 0 or 1.");
+            return;
+          }
           let player_id: string = args[4];
           let num_max_players: number = parseInt(max_players);
-          let public_number: number = parseInt(is_public);
           let id_number: number = parseInt(player_id);
           console.log("initializing");
           if (isNaN(num_max_players)) {
@@ -86,33 +127,109 @@ let server = net
             );
             return;
           }
-          if (
-            isNaN(public_number) ||
-            (public_number != 0 && public_number != 1)
-          ) {
-            console.log("bad public number");
-            socket.write("Invalid public setting - please use 0 or 1.");
-            return;
-          }
           if (isNaN(id_number)) {
             console.log("bad player id");
             socket.write("Invalid player id provided - please use an integer.");
             return;
           }
           console.log("make player");
+          let existing_room: Lobby | undefined = known_players.get(id_number);
+          if (existing_room != undefined) {
+            console.log("Player is already in a room");
+            remove_player(existing_room, id_number);
+          }
           let player: Player = {
             nickname: nickname,
             id: id_number,
+            ready: false,
+            ordinal: 1,
+            last_update: Date.now(),
           };
           console.log("make room");
+          let try_port: number | undefined = choose_free_port();
+          let port: number = -1;
+          if (try_port == undefined) {
+            socket.write("No free ports!");
+            return;
+          } else {
+            port = try_port!;
+          }
+          if (port == -1) {
+            socket.write("Server error - port allocation failed.");
+            return;
+          }
           let room: Lobby = create_room(
             player,
             num_max_players,
-            public_number == 1
+            is_public,
+            port
           );
-          console.log("Good!");
-          // Success! Return room code and port
+          console.log("room creation success - return room code and port");
           socket.write(["rc", room.room_code, room.port].join(DELIMITER));
+        }
+      }
+      if (type.includes("start")) {
+        console.log("Start game requested");
+        let room_code: string = args[1];
+        let room: Lobby | undefined = get_room(room_code);
+        if (room === undefined) {
+          socket.write("Room " + room_code + " not found.\n");
+          return;
+        } else {
+          console.log("Found room!");
+          let all_ready: boolean = room.players.reduce<boolean>(
+            (prev_ready, player) => prev_ready && player.ready,
+            true
+          );
+          if (!all_ready) {
+            socket.write("Can't start yet! not all players are ready.");
+            return;
+          } else {
+            console.log("everyone's ready!");
+            if (!busy_ports.has(room.port)) {
+              spawn_game_server(room.port, room.max_players);
+              busy_ports.add(room.port);
+            }
+            socket.write([`gs`, room.port].join(DELIMITER));
+          }
+        }
+      }
+      if (type.includes("list")) {
+      }
+      if (type.includes("detail")) {
+      }
+      if (type.includes("ready")) {
+        let room_code: string = args[1];
+        let id_string: string = args[2];
+        let id: number | undefined = parseInt(id_string);
+        if (isNaN(id) || id == undefined) {
+          socket.write("Invalid ID provided.");
+          return;
+        }
+        let status: boolean | undefined = parseBool(args[3]);
+        if (status == undefined) {
+          socket.write("Invalid status received - please use 0 or 1.");
+          return;
+        }
+        let room: Lobby | undefined = get_room(room_code);
+        if (room === undefined) {
+          socket.write("Room " + room_code + " not found.\n");
+          return;
+        } else {
+          console.log("Found room!");
+          let player: Player | undefined = room.players.find(
+            (player) => player.id == id
+          );
+          if (player == undefined) {
+            socket.write(
+              `Player with ID ${id} not found in room ${room_code}.`
+            );
+            return;
+          } else {
+            player.ready = status;
+            let message: string = construct_ready_message(room.players);
+            socket.write(message);
+          }
         }
       }
     });
@@ -129,31 +246,35 @@ function get_room(room_code: string): Lobby | undefined {
   }
 }
 
-function join_lobby(room_code: string, player: Player) {
-  console.log("join lobby");
-}
-
 function create_room(
   creator: Player,
   max_players: number,
-  is_public: boolean
+  is_public: boolean,
+  port_number: number
 ): Lobby {
   let room_code: string = generate_unique_room_code(ROOM_CODE_LENGTH);
-  let port: number = choose_free_port();
   let lobby: Lobby = {
     room_code: room_code,
     max_players: max_players,
     players: [creator],
     public: is_public,
-    port: port,
+    port: port_number,
   };
   let server_list = is_public ? public_servers : private_servers;
   server_list.set(room_code, lobby);
   return lobby;
 }
 
-function choose_free_port(): number {
-  return 12940;
+// Returns the port number that a game should use, or undefinied if no ports are available.
+function choose_free_port(): number | undefined {
+  for (let i = MIN_GAME_PORT; i < MAX_GAME_PORT; i++) {
+    if (!busy_ports.has(i)) {
+      busy_ports.add(i);
+      return i;
+    }
+  }
+  // TODO: spin up a new VM?
+  return undefined;
 }
 
 function generate_room_code(size: number): string {
@@ -190,4 +311,71 @@ function trim_controls(input: string): string {
     }
   }
   return result;
+}
+
+function spawn_game_server(port: number, max_players: number) {
+  console.log(`Starting server on port ${port}!`);
+  exec(
+    `${SERVER_EXEC_PATH} --headless -- port=${port} max-players=${max_players}`,
+    (error, stdout, stderr) => {
+      if (error) {
+        console.error(`exec on port ${port} error: ${error}`);
+      }
+      console.log(`port ${port} stdout: ${stdout}`);
+      console.error(`port ${port} stderr: ${stderr}`);
+      // Process complete callback - free up port
+      if (busy_ports.delete(port)) {
+        console.log(`Port ${port} freed!`);
+      } else {
+        console.log(`Warning - port ${port} was already considered free`);
+      }
+    }
+  );
+}
+
+function parseBool(input: string): boolean | undefined {
+  let input_number: number = parseInt(input);
+  if (isNaN(input_number) || (input_number != 0 && input_number != 1)) {
+    return undefined;
+  }
+  return input_number == 1;
+}
+
+function construct_ready_message(players: Player[]): string {
+  let message: string = "rd" + DELIMITER;
+  players.forEach((player: Player) => {
+    message += [player.id, player.nickname, player.ordinal, player.ready].join(
+      DELIMITER
+    );
+  });
+  return message;
+}
+
+function remove_player(lobby: Lobby, player_id: number): Lobby | undefined {
+  let player_index: number = lobby.players.findIndex(
+    (player) => player.id === player_id
+  );
+  if (isNaN(player_id) || player_index == -1) {
+    return undefined;
+  }
+  delete lobby.players[player_index];
+  ensure_nonzero_player_count(lobby);
+  return lobby;
+}
+
+function ensure_nonzero_player_count(lobby: Lobby) {
+  let room_code: string = lobby.room_code;
+  let hit_list: Map<string, Lobby> | undefined = [
+    private_servers,
+    public_servers,
+  ].find((list) => list.has(room_code));
+  if (hit_list != undefined) {
+    let server: Lobby | undefined = hit_list.get(room_code);
+    if (server != undefined && server.players.length == 0) {
+      if (busy_ports.has(server.port)) {
+        busy_ports.delete(server.port);
+      }
+      hit_list.delete(room_code);
+    }
+  }
 }
