@@ -1,4 +1,4 @@
-import { exec } from "child_process";
+import { spawn } from "child_process";
 import { randomInt } from "crypto";
 
 const net = require("net");
@@ -66,6 +66,7 @@ let server = net
   .createServer((socket: any) => {
     socket.on("data", (data: Buffer) => {
       let message: string = data.toString("utf-8");
+      console.log(`received message: \n${message}`);
       let args: string[] = message
         .split(DELIMITER)
         .map((value) => trim_controls(value));
@@ -196,9 +197,9 @@ let server = net
           } else {
             console.log("everyone's ready!");
             if (!busy_ports.has(room.port)) {
-              spawn_game_server(room.port, room.max_players);
               busy_ports.add(room.port);
             }
+            spawn_game_server(room.port, room.max_players);
             socket.write([`gs`, room.port].join(DELIMITER));
           }
         }
@@ -324,22 +325,21 @@ function trim_controls(input: string): string {
 
 function spawn_game_server(port: number, max_players: number) {
   console.log(`Starting server on port ${port}!`);
-  exec(
-    `${SERVER_EXEC_PATH} --headless -- port=${port} max-players=${max_players}`,
-    (error, stdout, stderr) => {
-      if (error) {
-        console.error(`exec on port ${port} error: ${error}`);
-      }
-      console.log(`port ${port} stdout: ${stdout}`);
-      console.error(`port ${port} stderr: ${stderr}`);
-      // Process complete callback - free up port
-      if (busy_ports.delete(port)) {
-        console.log(`Port ${port} freed!`);
-      } else {
-        console.log(`Warning - port ${port} was already considered free`);
-      }
-    }
+  var subprocess = spawn(
+    `${SERVER_EXEC_PATH}`,
+    [`--headless`, `--`, `port=${port}`, `max-players=${max_players}`],
+    { stdio: `inherit` }
   );
+  subprocess.on(`exit`, (code) => {
+    if (code) {
+      console.log("child process exited with code " + code.toString());
+    }
+    if (busy_ports.delete(port)) {
+      console.log(`Port ${port} freed!`);
+    } else {
+      console.log(`Warning - port ${port} was already considered free`);
+    }
+  });
 }
 
 function parseBool(input: string): boolean | undefined {
