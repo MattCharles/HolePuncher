@@ -3,6 +3,7 @@ import { randomInt } from "crypto";
 
 const net = require("net");
 
+const OWN_PORT: number = 12939;
 const DELIMITER: string = String.fromCharCode(31);
 const ROOM_CODE_LENGTH: number = 5;
 const MAX_ROOM_SIZE: number = 4;
@@ -87,6 +88,13 @@ let server = net
               socket.write("Room " + room_code + " full");
               return;
             }
+            if (
+              room.players.find((player: Player) => player.id == id) !=
+              undefined
+            ) {
+              socket.write("Brother you are already in this room");
+              return;
+            }
             let existing_room: Lobby | undefined = known_players.get(id);
             if (existing_room != undefined) {
               console.log("Player is already in a room");
@@ -95,12 +103,12 @@ let server = net
             let player: Player = {
               nickname: nickname,
               id: id,
-              ready: false,
+              ready: true,
               ordinal: room.players.length + 1,
               last_update: Date.now(),
             };
             room.players.push(player);
-            socket.write("jr" + DELIMITER + room.port);
+            socket.write("jr" + DELIMITER + room.room_code);
           }
         }
       }
@@ -141,7 +149,7 @@ let server = net
           let player: Player = {
             nickname: nickname,
             id: id_number,
-            ready: false,
+            ready: true,
             ordinal: 1,
             last_update: Date.now(),
           };
@@ -164,8 +172,8 @@ let server = net
             is_public,
             port
           );
-          console.log("room creation success - return room code and port");
-          socket.write(["rc", room.room_code, room.port].join(DELIMITER));
+          console.log("room creation success - return room code");
+          socket.write(["rc", room.room_code].join(DELIMITER));
         }
       }
       if (type.includes("start")) {
@@ -182,6 +190,7 @@ let server = net
             true
           );
           if (!all_ready) {
+            console.log("Not all ready");
             socket.write("Can't start yet! not all players are ready.");
             return;
           } else {
@@ -236,7 +245,7 @@ let server = net
     console.log("Accepted connection.");
     socket.write("Hello from the server!\n");
   })
-  .listen(12939, () => console.log("Listening on 12939."));
+  .listen(OWN_PORT, () => console.log(`Listening on ${OWN_PORT}.`));
 
 function get_room(room_code: string): Lobby | undefined {
   if (room_code.length != ROOM_CODE_LENGTH) {
