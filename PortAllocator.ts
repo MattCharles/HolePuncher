@@ -50,6 +50,7 @@ type Lobby = {
   players: Player[];
   public: boolean;
   port: number;
+  started: boolean;
 };
 
 let private_servers: Map<string, Lobby> = new Map<string, Lobby>();
@@ -109,7 +110,7 @@ let server = net
               last_update: Date.now(),
             };
             room.players.push(player);
-            socket.write("jr" + DELIMITER + room.room_code);
+            socket.write("jr" + DELIMITER + room.port);
           }
         }
       }
@@ -200,6 +201,7 @@ let server = net
               busy_ports.add(room.port);
             }
             spawn_game_server(room.port, room.max_players);
+            room.started = true; // next time players check on room, they'll see that it's time to start
             socket.write([`gs`, room.port].join(DELIMITER));
           }
         }
@@ -236,6 +238,13 @@ let server = net
             );
             return;
           } else {
+            // if all are ready and game is started, send start game message
+            if (room.started == true) {
+              // game could only be started if all players were ready: if you changed your mind too bad >:P
+              console.log("Starting game!");
+              socket.write([`gs`, room.port].join(DELIMITER));
+              return;
+            }
             player.ready = status;
             let message: string = construct_ready_message(room.players);
             socket.write(message);
@@ -269,6 +278,7 @@ function create_room(
     players: [creator],
     public: is_public,
     port: port_number,
+    started: false,
   };
   let server_list = is_public ? public_servers : private_servers;
   server_list.set(room_code, lobby);
