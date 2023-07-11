@@ -37,6 +37,7 @@ type Player = {
   ready: boolean;
   ordinal: number;
   last_update: number;
+  ingame_id: string | undefined;
 };
 
 // TODO: only host can start?
@@ -108,6 +109,7 @@ let server = net
               ready: true,
               ordinal: room.players.length + 1,
               last_update: Date.now(),
+              ingame_id: undefined,
             };
             room.players.push(player);
             socket.write("jr" + DELIMITER + room.port);
@@ -154,6 +156,7 @@ let server = net
             ready: true,
             ordinal: 1,
             last_update: Date.now(),
+            ingame_id: undefined,
           };
           console.log("make room");
           let try_port: number | undefined = choose_free_port();
@@ -366,8 +369,9 @@ function construct_ready_message(players: Player[]): string {
     message += [player.id, player.nickname, player.ordinal, player.ready].join(
       DELIMITER
     );
+    message += DELIMITER;
   });
-  return message;
+  return message.substring(0, message.length - 1);
 }
 
 function remove_player(lobby: Lobby, player_id: number): Lobby | undefined {
