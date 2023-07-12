@@ -210,6 +210,27 @@ let server = net
         }
       }
       if (type.includes("list")) {
+        console.log("List lobbies requested");
+        let message: string = `ll`;
+        for (let key in public_servers.keys()) {
+          let maybe_room: Lobby | undefined = public_servers.get(key);
+          if (maybe_room == undefined) {
+            // some sort of weird internal server error
+            console.log("couldn't find room " + key);
+            continue;
+          }
+          let room: Lobby = maybe_room;
+          let current_player_count: number = room.players.length;
+          let max_player_count: number = room.max_players;
+          message +=
+            DELIMITER +
+            key +
+            DELIMITER +
+            current_player_count +
+            DELIMITER +
+            max_player_count;
+        }
+        socket.write(message);
       }
       if (type.includes("detail")) {
       }
@@ -246,6 +267,11 @@ let server = net
               // game could only be started if all players were ready: if you changed your mind too bad >:P
               console.log("Starting game!");
               socket.write([`gs`, room.port].join(DELIMITER));
+              setTimeout(() => {
+                if (room) {
+                  room.started = false;
+                }
+              }, 1000); // after a minute, list this room as not started - this way we can return to lobby gracefully
               return;
             }
             player.ready = status;
