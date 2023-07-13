@@ -57,8 +57,8 @@ type Lobby = {
 let private_servers: Map<string, Lobby> = new Map<string, Lobby>();
 let public_servers: Map<string, Lobby> = new Map<string, Lobby>();
 
-// TODO: prevent double-joining or double-hosting
 let known_players: Map<number, Lobby> = new Map<number, Lobby>();
+let ip_to_id: Map<string, number> = new Map<string, number>();
 
 const MIN_GAME_PORT = 12940;
 const MAX_GAME_PORT = 22940;
@@ -69,6 +69,8 @@ let server = net
     socket.on("data", (data: Buffer) => {
       let message: string = data.toString("utf-8");
       console.log(`received message: \n${message}`);
+      let ip_and_port = `${socket.remoteAddress}:${socket.remotePort}`;
+      console.log(ip_and_port);
       let args: string[] = message
         .split(DELIMITER)
         .map((value) => trim_controls(value));
@@ -144,6 +146,8 @@ let server = net
             socket.write("Invalid player id provided - please use an integer.");
             return;
           }
+          ip_to_id.set(ip_and_port, id_number);
+          console.log(`${ip_and_port} id set to ${id_number}`);
           console.log("make player");
           let existing_room: Lobby | undefined = known_players.get(id_number);
           if (existing_room != undefined) {
@@ -212,7 +216,9 @@ let server = net
       if (type.includes("list")) {
         console.log("List lobbies requested");
         let message: string = `ll`;
-        for (let key in public_servers.keys()) {
+        console.log(public_servers.keys());
+        for (let key of public_servers.keys()) {
+          console.log(`key is ${key}`);
           let maybe_room: Lobby | undefined = public_servers.get(key);
           if (maybe_room == undefined) {
             // some sort of weird internal server error
@@ -230,6 +236,7 @@ let server = net
             DELIMITER +
             max_player_count;
         }
+        console.log(message);
         socket.write(message);
       }
       if (type.includes("detail")) {
@@ -242,6 +249,8 @@ let server = net
           socket.write("Invalid ID provided.");
           return;
         }
+        let id_number: number = id;
+        ip_to_id.set(ip_and_port, id_number);
         let status: boolean | undefined = parseBool(args[3]);
         if (status == undefined) {
           socket.write("Invalid status received - please use 0 or 1.");
@@ -281,6 +290,39 @@ let server = net
         }
       }
     });
+    socket.on("error", (err: Error) => {
+      if (
+        socket.remoteAddress !== undefined &&
+        socket.remotePort !== undefined
+      ) {
+        let ip_and_port = `${socket.remoteAddress}:${socket.remotePort}`;
+        console.log(`error from ${ip_and_port}`);
+        if (ip_to_id.has(ip_and_port)) {
+          let errored_user_id: number | undefined = ip_to_id.get(ip_and_port);
+          console.log(`got id ${errored_user_id} from ${ip_and_port}`);
+          if (errored_user_id === undefined) {
+            console.error(`Can't find ${ip_and_port} in ip_to_id`);
+          } else {
+            ip_to_id.delete(ip_and_port);
+            if (known_players.has(errored_user_id)) {
+              let dropped_lobby: Lobby | undefined =
+                known_players.get(errored_user_id);
+              if (dropped_lobby === undefined) {
+                console.error(
+                  `Trying to drop player ${errored_user_id} from unfound lobby.`
+                );
+              } else {
+                console.log(
+                  `Removing ${errored_user_id} from ${dropped_lobby.room_code}`
+                );
+                remove_player(dropped_lobby, errored_user_id);
+              }
+            }
+          }
+        }
+      }
+      console.error(`${err.name}: ${err.message}`);
+    });
     console.log("Accepted connection.");
     socket.write("Hello from the server!\n");
   })
@@ -309,8 +351,15 @@ function create_room(
     port: port_number,
     started: false,
   };
-  let server_list = is_public ? public_servers : private_servers;
-  server_list.set(room_code, lobby);
+  console.log(`Setting ${room_code} as key to access lobby.`);
+  if (is_public) {
+    public_servers.set(room_code, lobby);
+    console.log(public_servers.keys());
+  } else {
+    private_servers.set(room_code, lobby);
+    console.log(private_servers.keys());
+  }
+  known_players.set(creator.id, lobby);
   return lobby;
 }
 
@@ -355,7 +404,6 @@ function trim_controls(input: string): string {
   let result: string = "";
   for (let i: number = 0; i < input.length; i++) {
     if (input.charCodeAt(i) > 32) {
-      console.log("* " + input.charAt(i));
       result = result.concat(input.charAt(i));
     }
   }
@@ -401,30 +449,31 @@ function construct_ready_message(players: Player[]): string {
 }
 
 function remove_player(lobby: Lobby, player_id: number): Lobby | undefined {
-  let player_index: number = lobby.players.findIndex(
-    (player) => player.id === player_id
-  );
-  if (isNaN(player_id) || player_index == -1) {
-    return undefined;
-  }
-  delete lobby.players[player_index];
+  lobby.players.forEach((player, index) => {
+    if (player.id === player_id) lobby.players.splice(index, 1);
+  });
   ensure_nonzero_player_count(lobby);
   return lobby;
 }
 
 function ensure_nonzero_player_count(lobby: Lobby) {
   let room_code: string = lobby.room_code;
-  let hit_list: Map<string, Lobby> | undefined = [
-    private_servers,
-    public_servers,
-  ].find((list) => list.has(room_code));
-  if (hit_list != undefined) {
-    let server: Lobby | undefined = hit_list.get(room_code);
-    if (server != undefined && server.players.length == 0) {
-      if (busy_ports.has(server.port)) {
-        busy_ports.delete(server.port);
-      }
-      hit_list.delete(room_code);
+  console.log(`Ensuring nonzero player count in ${room_code}`);
+  let server: Lobby | undefined = lobby.public
+    ? public_servers.get(room_code)
+    : private_servers.get(room_code);
+  console.log(
+    `server defined? ${server != undefined} player length = ${
+      server?.players.length
+    }`
+  );
+  if (server != undefined && server.players.length == 0) {
+    if (busy_ports.has(server.port)) {
+      busy_ports.delete(server.port);
     }
+    console.log(`bout to delete`);
+    lobby.public
+      ? public_servers.delete(room_code)
+      : private_servers.delete(room_code);
   }
 }
