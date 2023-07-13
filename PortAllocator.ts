@@ -241,6 +241,22 @@ let server = net
       }
       if (type.includes("detail")) {
       }
+      if (type.includes("exit")) {
+        let id_string: string = args[1];
+        console.log(`exiting for ${id_string}`);
+        let id: number | undefined = parseInt(id_string);
+        if (isNaN(id) || id == undefined) {
+          socket.write("Invalid ID provided.");
+          return;
+        }
+        let lobby: Lobby | undefined = known_players.get(id);
+        if (lobby === undefined) {
+          socket.write(`Could not find lobby for ${id}`);
+          return;
+        } else {
+          remove_player(lobby, id);
+        }
+      }
       if (type.includes("ready")) {
         let room_code: string = args[1];
         let id_string: string = args[2];
