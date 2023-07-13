@@ -224,7 +224,7 @@ let server = net
           let max_player_count: number = room.max_players;
           message +=
             DELIMITER +
-            key +
+            key + // room_code
             DELIMITER +
             current_player_count +
             DELIMITER +
