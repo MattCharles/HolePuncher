@@ -77,7 +77,9 @@ let server = net
         .split(DELIMITER)
         .map((value) => trim_controls(value))
         .filter((value) => {
-          value != null && value != undefined && value != ``;
+          if (value !== null && value !== undefined && value !== ``) {
+            return value;
+          }
         });
       let type: string = args[0];
       if (type.includes("join")) {
