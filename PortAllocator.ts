@@ -137,6 +137,7 @@ let server = net
             socket.write(
               `Room name too long. Please use ${MAX_NAME_SIZE} or fewer characters.`
             );
+            return;
           }
           let num_max_players: number = parseInt(max_players);
           let id_number: number = parseInt(player_id);
