@@ -7,6 +7,7 @@ const OWN_PORT: number = 12939;
 const DELIMITER: string = String.fromCharCode(31);
 const ROOM_CODE_LENGTH: number = 5;
 const MAX_ROOM_SIZE: number = 4;
+const MAX_NAME_SIZE: number = 16;
 const SERVER_EXEC_PATH: string = "/home/mattdacat/Builds/server.x86_64";
 const CONSONANTS: string[] = [
   "B",
@@ -46,6 +47,7 @@ type Player = {
 
 // TODO: track last_update for lobby - if all DC at same time, can prune lobby
 type Lobby = {
+  name: string;
   room_code: string;
   max_players: number;
   players: Player[];
@@ -114,12 +116,12 @@ let server = net
               ingame_id: undefined,
             };
             room.players.push(player);
-            socket.write("jr" + DELIMITER + room.port);
+            socket.write("jr" + DELIMITER + room.port + DELIMITER + room.name);
           }
         }
       }
       if (type.includes("create")) {
-        if (args.length == 5) {
+        if (args.length == 6) {
           let nickname: string = args[1];
           let max_players: string = args[2];
           let is_public: boolean | undefined = parseBool(args[3]);
@@ -129,6 +131,13 @@ let server = net
             return;
           }
           let player_id: string = args[4];
+          let room_name: string = args[5];
+          if (room_name.length > MAX_NAME_SIZE) {
+            console.log("room name too long!");
+            socket.write(
+              `Room name too long. Please use ${MAX_NAME_SIZE} or fewer characters.`
+            );
+          }
           let num_max_players: number = parseInt(max_players);
           let id_number: number = parseInt(player_id);
           console.log("initializing");
@@ -176,6 +185,7 @@ let server = net
             return;
           }
           let room: Lobby = create_room(
+            room_name,
             player,
             num_max_players,
             is_public,
@@ -228,9 +238,12 @@ let server = net
           let room: Lobby = maybe_room;
           let current_player_count: number = room.players.length;
           let max_player_count: number = room.max_players;
+          let room_name: string = room.name;
           message +=
             DELIMITER +
             key + // room_code
+            DELIMITER +
+            room_name +
             DELIMITER +
             current_player_count +
             DELIMITER +
@@ -353,6 +366,7 @@ function get_room(room_code: string): Lobby | undefined {
 }
 
 function create_room(
+  name: string,
   creator: Player,
   max_players: number,
   is_public: boolean,
@@ -360,6 +374,7 @@ function create_room(
 ): Lobby {
   let room_code: string = generate_unique_room_code(ROOM_CODE_LENGTH);
   let lobby: Lobby = {
+    name: name,
     room_code: room_code,
     max_players: max_players,
     players: [creator],
