@@ -75,7 +75,10 @@ let server = net
       console.log(ip_and_port);
       let args: string[] = message
         .split(DELIMITER)
-        .map((value) => trim_controls(value));
+        .map((value) => trim_controls(value))
+        .filter((value) => {
+          value != null && value != undefined && value != ``;
+        });
       let type: string = args[0];
       if (type.includes("join")) {
         if (args.length > 1) {
