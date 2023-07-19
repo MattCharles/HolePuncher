@@ -223,7 +223,7 @@ let server = net
             if (!busy_ports.has(room.port)) {
               busy_ports.add(room.port);
             }
-            spawn_game_server(room.port, room.max_players);
+            spawn_game_server(room.port, room.max_players, room.room_code);
             room.started = true; // next time players check on room, they'll see that it's time to start
             socket.write([`gs`, room.port].join(DELIMITER));
           }
@@ -447,7 +447,11 @@ function trim_controls(input: string): string {
   return result;
 }
 
-function spawn_game_server(port: number, max_players: number) {
+function spawn_game_server(
+  port: number,
+  max_players: number,
+  room_code: string
+) {
   console.log(`Starting server on port ${port}!`);
   var subprocess = spawn(
     `${SERVER_EXEC_PATH}`,
@@ -460,6 +464,27 @@ function spawn_game_server(port: number, max_players: number) {
     }
     if (busy_ports.delete(port)) {
       console.log(`Port ${port} freed!`);
+      let dead_lobby: Lobby | undefined = get_room(room_code);
+      if (dead_lobby != undefined) {
+        if (dead_lobby.public) {
+          if (public_servers.delete(room_code)) {
+            console.log(`${room_code} deleted from public server list`);
+          } else {
+            console.log(
+              `Tried to delete ${room_code} from public server list, but it wasn't found.`
+            );
+          }
+        } else {
+          if (private_servers.delete(room_code)) {
+            console.log(`${room_code} deleted from private server list`);
+          } else {
+            console.log(
+              `Tried to delete ${room_code} from private server list, but it wasn't found.`
+            );
+          }
+        }
+        console.log(`Tried to delete lobby - couldn't find it`);
+      }
     } else {
       console.log(`Warning - port ${port} was already considered free`);
     }
