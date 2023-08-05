@@ -461,32 +461,33 @@ function spawn_game_server(
   subprocess.on(`exit`, (code) => {
     if (code) {
       console.log("child process exited with code " + code.toString());
-    }
-    if (busy_ports.delete(port)) {
-      console.log(`Port ${port} freed!`);
-      let dead_lobby: Lobby | undefined = get_room(room_code);
-      if (dead_lobby != undefined) {
-        if (dead_lobby.public) {
-          if (public_servers.delete(room_code)) {
-            console.log(`${room_code} deleted from public server list`);
+      if (busy_ports.delete(port)) {
+        console.log(`Port ${port} freed!`);
+        let dead_lobby: Lobby | undefined = get_room(room_code);
+        if (dead_lobby != undefined) {
+          if (dead_lobby.public) {
+            if (public_servers.delete(room_code)) {
+              console.log(`${room_code} deleted from public server list`);
+            } else {
+              console.log(
+                `Tried to delete ${room_code} from public server list, but it wasn't found.`
+              );
+            }
           } else {
-            console.log(
-              `Tried to delete ${room_code} from public server list, but it wasn't found.`
-            );
-          }
-        } else {
-          if (private_servers.delete(room_code)) {
-            console.log(`${room_code} deleted from private server list`);
-          } else {
-            console.log(
-              `Tried to delete ${room_code} from private server list, but it wasn't found.`
-            );
+            if (private_servers.delete(room_code)) {
+              console.log(`${room_code} deleted from private server list`);
+            } else {
+              console.log(
+                `Tried to delete ${room_code} from private server list, but it wasn't found.`
+              );
+            }
           }
         }
-        console.log(`Tried to delete lobby - couldn't find it`);
       }
     } else {
-      console.log(`Warning - port ${port} was already considered free`);
+      console.log(
+        "game exited with 0 exit code - lobby reservation maintained"
+      );
     }
   });
 }
