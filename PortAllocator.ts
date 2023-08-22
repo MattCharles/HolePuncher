@@ -121,6 +121,7 @@ let server = net
               ingame_id: undefined,
             };
             room.players.push(player);
+            known_players.set(id, room);
             socket.write("jr" + DELIMITER + room.port + DELIMITER + room.name);
           }
         }
