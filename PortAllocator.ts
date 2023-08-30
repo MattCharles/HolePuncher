@@ -44,8 +44,6 @@ type Player = {
 // TODO: only host can start?
 // Anyone can start once all have readied up?
 // Autostart on all ready up?
-
-// TODO: track last_update for lobby - if all DC at same time, can prune lobby
 type Lobby = {
   name: string;
   room_code: string;
@@ -56,8 +54,7 @@ type Lobby = {
   started: boolean;
 };
 
-let private_servers: Map<string, Lobby> = new Map<string, Lobby>();
-let public_servers: Map<string, Lobby> = new Map<string, Lobby>();
+let servers: Map<string, Lobby> = new Map<string, Lobby>();
 
 let known_players: Map<number, Lobby> = new Map<number, Lobby>();
 let ip_to_id: Map<string, number> = new Map<string, number>();
@@ -93,6 +90,11 @@ let server = net
           let room: Lobby | undefined = get_room(room_code);
           if (room === undefined) {
             socket.write("Room " + room_code + " not found.\n");
+            return;
+          } else if (room.started) {
+            socket.write(
+              "Room " + room_code + " has a game in progress. Try again later."
+            );
             return;
           } else {
             console.log("Found room!");
@@ -233,11 +235,10 @@ let server = net
       if (type.includes("list")) {
         console.log("List lobbies requested");
         let message: string = `ll`;
-        console.log(public_servers.keys());
-        for (let key of public_servers.keys()) {
+        for (let key of servers.keys()) {
           console.log(`key is ${key}`);
-          let maybe_room: Lobby | undefined = public_servers.get(key);
-          if (maybe_room == undefined) {
+          let maybe_room: Lobby | undefined = servers.get(key);
+          if (maybe_room == undefined || !maybe_room.public) {
             // some sort of weird internal server error
             console.log("couldn't find room " + key);
             continue;
@@ -368,7 +369,7 @@ function get_room(room_code: string): Lobby | undefined {
   if (room_code.length != ROOM_CODE_LENGTH) {
     return undefined;
   } else {
-    return private_servers.get(room_code) ?? public_servers.get(room_code);
+    return servers.get(room_code);
   }
 }
 
@@ -390,13 +391,8 @@ function create_room(
     started: false,
   };
   console.log(`Setting ${room_code} as key to access lobby.`);
-  if (is_public) {
-    public_servers.set(room_code, lobby);
-    console.log(public_servers.keys());
-  } else {
-    private_servers.set(room_code, lobby);
-    console.log(private_servers.keys());
-  }
+  servers.set(room_code, lobby);
+  console.log(servers.keys());
   known_players.set(creator.id, lobby);
   return lobby;
 }
@@ -432,10 +428,7 @@ function generate_unique_room_code(size: number): string {
 }
 
 function room_code_is_taken(room_code: string): boolean {
-  return (
-    room_code.length == ROOM_CODE_LENGTH &&
-    (private_servers.has(room_code) || public_servers.has(room_code))
-  );
+  return room_code.length == ROOM_CODE_LENGTH && servers.has(room_code);
 }
 
 function trim_controls(input: string): string {
@@ -453,8 +446,14 @@ function spawn_game_server(
   max_players: number,
   room_code: string
 ) {
+  let new_game: Lobby | undefined = servers.get(room_code);
+  if (new_game == undefined) {
+    console.log("Tried to spawn a game for a deallocated lobby");
+    return;
+  }
+  new_game.started = true;
   console.log(`Starting server on port ${port}!`);
-  var subprocess = spawn(
+  let subprocess = spawn(
     `${SERVER_EXEC_PATH}`,
     [`--headless`, `--`, `port=${port}`, `max-players=${max_players}`],
     { stdio: `inherit` }
@@ -466,22 +465,12 @@ function spawn_game_server(
         console.log(`Port ${port} freed!`);
         let dead_lobby: Lobby | undefined = get_room(room_code);
         if (dead_lobby != undefined) {
-          if (dead_lobby.public) {
-            if (public_servers.delete(room_code)) {
-              console.log(`${room_code} deleted from public server list`);
-            } else {
-              console.log(
-                `Tried to delete ${room_code} from public server list, but it wasn't found.`
-              );
-            }
+          if (servers.delete(room_code)) {
+            console.log(`${room_code} deleted from public server list`);
           } else {
-            if (private_servers.delete(room_code)) {
-              console.log(`${room_code} deleted from private server list`);
-            } else {
-              console.log(
-                `Tried to delete ${room_code} from private server list, but it wasn't found.`
-              );
-            }
+            console.log(
+              `Tried to delete ${room_code} from public server list, but it wasn't found.`
+            );
           }
         }
       }
@@ -489,6 +478,19 @@ function spawn_game_server(
       console.log(
         "game exited with 0 exit code - lobby reservation maintained"
       );
+
+      console.log(
+        "We know about busy port " +
+          port.toString() +
+          " " +
+          busy_ports.has(port)
+      );
+      let finished_game: Lobby | undefined = servers.get(room_code);
+      if (finished_game == undefined) {
+        console.log("Deallocated a game that should not have been deallocated");
+        return;
+      }
+      finished_game.started = false;
     }
   });
 }
@@ -523,9 +525,7 @@ function remove_player(lobby: Lobby, player_id: number): Lobby | undefined {
 function ensure_nonzero_player_count(lobby: Lobby) {
   let room_code: string = lobby.room_code;
   console.log(`Ensuring nonzero player count in ${room_code}`);
-  let server: Lobby | undefined = lobby.public
-    ? public_servers.get(room_code)
-    : private_servers.get(room_code);
+  let server: Lobby | undefined = servers.get(room_code);
   console.log(
     `server defined? ${server != undefined} player length = ${
       server?.players.length
@@ -536,8 +536,6 @@ function ensure_nonzero_player_count(lobby: Lobby) {
       busy_ports.delete(server.port);
     }
     console.log(`bout to delete`);
-    lobby.public
-      ? public_servers.delete(room_code)
-      : private_servers.delete(room_code);
+    servers.delete(room_code);
   }
 }
